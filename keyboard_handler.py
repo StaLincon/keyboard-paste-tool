@@ -105,10 +105,9 @@ SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 class KeyboardHandler:
     """键盘处理器：监听全局热键并通过 SendInput 模拟键盘输入"""
 
-    def __init__(self, delay_ms: int = 5, pre_delay_ms: int = 200, hotkey: str = "ctrl+alt+v"):
+    def __init__(self, delay_ms: int = 5, pre_delay_ms: int = 200):
         self._delay = max(1, min(delay_ms, 200))  # 字符间延迟 1-200ms
         self._pre_delay = max(0, min(pre_delay_ms, 2000))  # 首字前等待 0-2000ms
-        self._hotkey = hotkey.lower()  # 当前热键字符串
         self._running = False
         self._hotkey_id = None
         self._lock = threading.Lock()
@@ -135,14 +134,6 @@ class KeyboardHandler:
     @pre_delay_ms.setter
     def pre_delay_ms(self, value: int):
         self._pre_delay = max(0, min(value, 2000))
-
-    @property
-    def hotkey(self) -> str:
-        return self._hotkey
-
-    @hotkey.setter
-    def hotkey(self, value: str):
-        self._hotkey = value.lower().strip()
 
     @property
     def is_running(self) -> bool:
@@ -349,7 +340,7 @@ class KeyboardHandler:
 
     # ----- 热键回调 -----
     def _on_hotkey(self):
-        """热键触发时的回调"""
+        """Ctrl+Shift+V 热键触发时的回调"""
         if self._typing:
             print("[提示] 正在输入中，请等待当前输入完成")
             return
@@ -362,7 +353,7 @@ class KeyboardHandler:
         print(f"[信息] 开始输入 {len(text)} 个字符，延迟 {self._delay}ms")
         threading.Thread(target=self.type_text, args=(text,), daemon=True).start()
 
-    # ----- 启动/停止 / 热键切换 -----
+    # ----- 启动/停止 -----
     def start(self):
         """注册全局热键并开始监听"""
         if self._running:
@@ -370,13 +361,13 @@ class KeyboardHandler:
 
         try:
             self._hotkey_id = keyboard.add_hotkey(
-                self._hotkey,
+                'ctrl+alt+v',
                 self._on_hotkey,
-                suppress=False,
+                suppress=False,  # 不阻止 Ctrl+Alt+V 到达其他应用
                 trigger_on_release=False
             )
             self._running = True
-            print(f"[信息] 键盘处理器已启动，快捷键: {self._hotkey}")
+            print("[信息] 键盘处理器已启动，快捷键: Ctrl+Alt+V")
             if self._on_status_change:
                 self._on_status_change(True)
         except Exception as e:
@@ -399,34 +390,3 @@ class KeyboardHandler:
         except Exception as e:
             print(f"[错误] 停止键盘处理器失败: {e}")
             self._running = False
-
-    def set_hotkey(self, new_hotkey: str) -> bool:
-        """
-        运行时切换热键。需要先停止再重新启动。
-
-        Args:
-            new_hotkey: 新热键字符串，如 "ctrl+alt+v", "ctrl+shift+z" 等
-
-        Returns:
-            bool: 是否切换成功
-        """
-        new_hotkey = new_hotkey.lower().strip()
-        if not new_hotkey:
-            print("[错误] 热键不能为空")
-            return False
-
-        was_running = self._running
-        if was_running:
-            self.stop()
-
-        self._hotkey = new_hotkey
-
-        if was_running:
-            try:
-                self.start()
-                print(f"[信息] 热键已切换为: {self._hotkey}")
-                return True
-            except Exception as e:
-                print(f"[错误] 切换热键失败: {e}")
-                return False
-        return True
