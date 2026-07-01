@@ -400,67 +400,6 @@ class KeyboardHandler:
             print(f"[错误] 停止键盘处理器失败: {e}")
             self._running = False
 
-    # 受支持的修饰键
-    _MODIFIERS = {"ctrl", "shift", "alt", "win", "windows", "left windows", "right windows"}
-
-    # 禁止单独使用的键（可能与系统功能冲突）
-    _FORBIDDEN_SINGLE_KEYS = set()  # 由 is_valid_hotkey 统一判断单键
-
-    # 不支持的键（鼠标按键等）
-    _UNSUPPORTED_KEYS = {
-        "left", "right", "middle",  # 鼠标按键
-        "x1", "x2",  # 鼠标侧键
-        "mouse", "mouse left", "mouse right",
-    }
-
-    @classmethod
-    def is_valid_hotkey(cls, hotkey: str) -> tuple[bool, str]:
-        """
-        验证热键是否合法。
-
-        Args:
-            hotkey: 热键字符串，如 "ctrl+alt+v"
-
-        Returns:
-            (is_valid, error_message)
-        """
-        hotkey = hotkey.lower().strip()
-        if not hotkey:
-            return False, "热键不能为空"
-
-        parts = [p.strip() for p in hotkey.split("+") if p.strip()]
-        if len(parts) == 0:
-            return False, "热键格式不正确"
-
-        # 检查是否包含不支持的键
-        for p in parts:
-            if p in cls._UNSUPPORTED_KEYS:
-                return False, f"不支持的键位: {p}（鼠标按键不可用作热键）"
-
-        # 至少需要一个修饰键 + 一个非修饰键（即不能是单键）
-        modifiers = [p for p in parts if p in cls._MODIFIERS]
-        non_modifiers = [p for p in parts if p not in cls._MODIFIERS]
-
-        if len(modifiers) == 0:
-            return False, "热键必须至少包含一个修饰键（ctrl / shift / alt / win）"
-
-        if len(non_modifiers) == 0:
-            return False, "热键必须包含至少一个字符键（如 v、c、z 等）"
-
-        if len(non_modifiers) > 1:
-            return False, "热键只能包含一个非修饰字符键"
-
-        # 非修饰键不能是纯修饰词的别名
-        main_key = non_modifiers[0]
-        if main_key in cls._MODIFIERS:
-            return False, "热键格式不正确"
-
-        # 主键长度基本检查
-        if len(main_key) == 0:
-            return False, "热键格式不正确"
-
-        return True, ""
-
     def set_hotkey(self, new_hotkey: str) -> bool:
         """
         运行时切换热键。需要先停止再重新启动。
@@ -472,11 +411,8 @@ class KeyboardHandler:
             bool: 是否切换成功
         """
         new_hotkey = new_hotkey.lower().strip()
-
-        # 验证热键合法性
-        is_valid, err_msg = self.is_valid_hotkey(new_hotkey)
-        if not is_valid:
-            print(f"[错误] 热键不合法: {err_msg}")
+        if not new_hotkey:
+            print("[错误] 热键不能为空")
             return False
 
         was_running = self._running
