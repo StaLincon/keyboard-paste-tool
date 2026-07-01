@@ -105,9 +105,10 @@ SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 class KeyboardHandler:
     """键盘处理器：监听全局热键并通过 SendInput 模拟键盘输入"""
 
-    def __init__(self, delay_ms: int = 5, pre_delay_ms: int = 200):
+    def __init__(self, delay_ms: int = 5, pre_delay_ms: int = 200, hotkey: str = "ctrl+alt+v"):
         self._delay = max(1, min(delay_ms, 200))  # 字符间延迟 1-200ms
         self._pre_delay = max(0, min(pre_delay_ms, 2000))  # 首字前等待 0-2000ms
+        self._hotkey = hotkey.lower()  # 当前热键字符串
         self._running = False
         self._hotkey_id = None
         self._lock = threading.Lock()
@@ -134,6 +135,14 @@ class KeyboardHandler:
     @pre_delay_ms.setter
     def pre_delay_ms(self, value: int):
         self._pre_delay = max(0, min(value, 2000))
+
+    @property
+    def hotkey(self) -> str:
+        return self._hotkey
+
+    @hotkey.setter
+    def hotkey(self, value: str):
+        self._hotkey = value.lower().strip()
 
     @property
     def is_running(self) -> bool:
@@ -340,7 +349,7 @@ class KeyboardHandler:
 
     # ----- 热键回调 -----
     def _on_hotkey(self):
-        """Ctrl+Shift+V 热键触发时的回调"""
+        """热键触发时的回调"""
         if self._typing:
             print("[提示] 正在输入中，请等待当前输入完成")
             return
@@ -353,7 +362,7 @@ class KeyboardHandler:
         print(f"[信息] 开始输入 {len(text)} 个字符，延迟 {self._delay}ms")
         threading.Thread(target=self.type_text, args=(text,), daemon=True).start()
 
-    # ----- 启动/停止 -----
+    # ----- 启动/停止 / 热键切换 -----
     def start(self):
         """注册全局热键并开始监听"""
         if self._running:
@@ -361,13 +370,13 @@ class KeyboardHandler:
 
         try:
             self._hotkey_id = keyboard.add_hotkey(
-                'ctrl+alt+v',
+                self._hotkey,
                 self._on_hotkey,
-                suppress=False,  # 不阻止 Ctrl+Alt+V 到达其他应用
+                suppress=False,
                 trigger_on_release=False
             )
             self._running = True
-            print("[信息] 键盘处理器已启动，快捷键: Ctrl+Alt+V")
+            print(f"[信息] 键盘处理器已启动，快捷键: {self._hotkey}")
             if self._on_status_change:
                 self._on_status_change(True)
         except Exception as e:
@@ -390,3 +399,98 @@ class KeyboardHandler:
         except Exception as e:
             print(f"[错误] 停止键盘处理器失败: {e}")
             self._running = False
+
+    # 受支持的修饰键
+    _MODIFIERS = {"ctrl", "shift", "alt", "win", "windows", "left windows", "right windows"}
+
+    # 禁止单独使用的键（可能与系统功能冲突）
+    _FORBIDDEN_SINGLE_KEYS = set()  # 由 is_valid_hotkey 统一判断单键
+
+    # 不支持的键（鼠标按键等）
+    _UNSUPPORTED_KEYS = {
+        "left", "right", "middle",  # 鼠标按键
+        "x1", "x2",  # 鼠标侧键
+        "mouse", "mouse left", "mouse right",
+    }
+
+    @classmethod
+    def is_valid_hotkey(cls, hotkey: str) -> tuple[bool, str]:
+        """
+        验证热键是否合法。
+
+        Args:
+            hotkey: 热键字符串，如 "ctrl+alt+v"
+
+        Returns:
+            (is_valid, error_message)
+        """
+        hotkey = hotkey.lower().strip()
+        if not hotkey:
+            return False, "热键不能为空"
+
+        parts = [p.strip() for p in hotkey.split("+") if p.strip()]
+        if len(parts) == 0:
+            return False, "热键格式不正确"
+
+        # 检查是否包含不支持的键
+        for p in parts:
+            if p in cls._UNSUPPORTED_KEYS:
+                return False, f"不支持的键位: {p}（鼠标按键不可用作热键）"
+
+        # 至少需要一个修饰键 + 一个非修饰键（即不能是单键）
+        modifiers = [p for p in parts if p in cls._MODIFIERS]
+        non_modifiers = [p for p in parts if p not in cls._MODIFIERS]
+
+        if len(modifiers) == 0:
+            return False, "热键必须至少包含一个修饰键（ctrl / shift / alt / win）"
+
+        if len(non_modifiers) == 0:
+            return False, "热键必须包含至少一个字符键（如 v、c、z 等）"
+
+        if len(non_modifiers) > 1:
+            return False, "热键只能包含一个非修饰字符键"
+
+        # 非修饰键不能是纯修饰词的别名
+        main_key = non_modifiers[0]
+        if main_key in cls._MODIFIERS:
+            return False, "热键格式不正确"
+
+        # 主键长度基本检查
+        if len(main_key) == 0:
+            return False, "热键格式不正确"
+
+        return True, ""
+
+    def set_hotkey(self, new_hotkey: str) -> bool:
+        """
+        运行时切换热键。需要先停止再重新启动。
+
+        Args:
+            new_hotkey: 新热键字符串，如 "ctrl+alt+v", "ctrl+shift+z" 等
+
+        Returns:
+            bool: 是否切换成功
+        """
+        new_hotkey = new_hotkey.lower().strip()
+
+        # 验证热键合法性
+        is_valid, err_msg = self.is_valid_hotkey(new_hotkey)
+        if not is_valid:
+            print(f"[错误] 热键不合法: {err_msg}")
+            return False
+
+        was_running = self._running
+        if was_running:
+            self.stop()
+
+        self._hotkey = new_hotkey
+
+        if was_running:
+            try:
+                self.start()
+                print(f"[信息] 热键已切换为: {self._hotkey}")
+                return True
+            except Exception as e:
+                print(f"[错误] 切换热键失败: {e}")
+                return False
+        return True

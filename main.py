@@ -60,7 +60,7 @@ def create_tray_icon(ui: SettingsWindow, handler: KeyboardHandler):
     icon = pystray.Icon(
         "keyboard_paste_tool",
         create_image((0, 180, 0)),
-        "键盘粘贴工具 (Ctrl+Alt+V)",
+        "键盘粘贴工具 (自定义热键)",
         menu=pystray.Menu(
             pystray.MenuItem("显示设置", lambda: ui.restore()),
             pystray.MenuItem("切换服务", lambda: toggle_service(handler)),

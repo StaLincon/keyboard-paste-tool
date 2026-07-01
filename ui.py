@@ -39,7 +39,7 @@ class SettingsWindow:
         """构建窗口界面"""
         self._window = tk.Tk()
         self._window.title("键盘粘贴工具 - 设置")
-        self._window.geometry("420x460")
+        self._window.geometry("440x560")
         self._window.resizable(False, False)
 
         # 窗口图标（如果有的话）
@@ -62,9 +62,34 @@ class SettingsWindow:
         style = ttk.Style()
         style.theme_use("clam")
 
-        # 主框架
-        main_frame = ttk.Frame(self._window, padding=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # 外层：Canvas + Scrollbar 实现可滚动区域
+        outer_frame = ttk.Frame(self._window)
+        outer_frame.pack(fill=tk.BOTH, expand=True)
+
+        self._canvas = tk.Canvas(outer_frame, highlightthickness=0)
+        self._scrollbar = ttk.Scrollbar(outer_frame, orient="vertical", command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+
+        self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 主框架（置于 Canvas 内部，可滚动）
+        main_frame = ttk.Frame(self._canvas, padding=20)
+        self._main_frame_id = self._canvas.create_window((0, 0), window=main_frame, anchor="nw")
+
+        # 绑定尺寸变化事件，更新滚动区域
+        main_frame.bind(
+            "<Configure>",
+            lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        )
+        self._canvas.bind(
+            "<Configure>",
+            lambda e: self._canvas.itemconfig(self._main_frame_id, width=e.width)
+        )
+
+        # 鼠标滚轮支持
+        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind_all("<MouseShift-MouseWheel>", lambda e: None)  # 忽略 Shift+滚轮
 
         # ----- 标题 -----
         title_label = ttk.Label(
@@ -76,7 +101,7 @@ class SettingsWindow:
 
         subtitle_label = ttk.Label(
             main_frame,
-            text="Ctrl+Alt+V 模拟键盘输入粘贴",
+            text="自定义快捷键 模拟键盘输入粘贴",
             font=("Microsoft YaHei UI", 9),
             foreground="#666"
         )
@@ -111,11 +136,62 @@ class SettingsWindow:
         # 快捷键提示
         shortcut_label = ttk.Label(
             status_inner,
-            text="  (Ctrl+Alt+V)",
+            text=f"  ({self._format_hotkey_display(self._handler.hotkey)})",
             font=("Microsoft YaHei UI", 9),
             foreground="#888"
         )
         shortcut_label.pack(side=tk.LEFT)
+        self._shortcut_label = shortcut_label
+
+        # ----- 热键设置 -----
+        hotkey_frame = ttk.LabelFrame(main_frame, text="热键设置", padding=10)
+        hotkey_frame.pack(fill=tk.X, pady=(10, 5))
+
+        hotkey_inner = ttk.Frame(hotkey_frame)
+        hotkey_inner.pack(fill=tk.X)
+
+        ttk.Label(hotkey_inner, text="触发热键:").pack(side=tk.LEFT)
+
+        self._hotkey_var = tk.StringVar(value=self._format_hotkey_display(self._handler.hotkey))
+        self._hotkey_entry = ttk.Entry(
+            hotkey_inner,
+            textvariable=self._hotkey_var,
+            width=20,
+            font=("Consolas", 10)
+        )
+        self._hotkey_entry.pack(side=tk.LEFT, padx=(8, 8))
+
+        ttk.Button(
+            hotkey_inner, text="应用", command=self._apply_hotkey, width=8
+        ).pack(side=tk.RIGHT)
+
+        # 预设热键
+        preset_frame = ttk.Frame(hotkey_frame)
+        preset_frame.pack(fill=tk.X, pady=(8, 0))
+
+        ttk.Label(preset_frame, text="预设:", font=("Microsoft YaHei UI", 8), foreground="#888").pack(side=tk.LEFT)
+
+        presets = ["Ctrl+Alt+V", "Ctrl+Shift+V", "Ctrl+Shift+Z", "Ctrl+Alt+C", "Alt+Shift+V"]
+        for idx, name in enumerate(presets):
+            if idx > 0:
+                ttk.Label(preset_frame, text=" | ", font=("Microsoft YaHei UI", 8), foreground="#ccc").pack(side=tk.LEFT)
+            lbl = ttk.Label(
+                preset_frame,
+                text=name,
+                font=("Microsoft YaHei UI", 8, "underline"),
+                foreground="#3498db",
+                cursor="hand2"
+            )
+            lbl.pack(side=tk.LEFT)
+            lbl.bind("<Button-1>", lambda e, hk=name.lower(): self._hotkey_var.set(hk))
+
+        hotkey_hint = ttk.Label(
+            hotkey_frame,
+            text="需至少包含一个修饰键(ctrl/shift/alt/win)  |  不支持鼠标按键、F1-F12单键",
+            font=("Microsoft YaHei UI", 8),
+            foreground="#999"
+        )
+        hotkey_hint.pack(pady=(5, 0))
 
         # ----- 首字延迟设置 -----
         pre_delay_frame = ttk.LabelFrame(main_frame, text="首字前延迟（防止开头字符丢失）", padding=10)
@@ -228,7 +304,7 @@ class SettingsWindow:
 
         version_label = ttk.Label(
             bottom_frame,
-            text="v1.0 | 适用: Windows 10+",
+            text="v1.2 | 适用: Windows 10+",
             font=("Microsoft YaHei UI", 8),
             foreground="#aaa"
         )
@@ -244,6 +320,10 @@ class SettingsWindow:
             self._update_status(True)
 
     # ----- 事件处理 -----
+    def _on_mousewheel(self, event):
+        """鼠标滚轮滚动"""
+        self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
     def _on_delay_change(self, value):
         """延迟滑块变化"""
         delay = int(float(value))
@@ -255,6 +335,48 @@ class SettingsWindow:
         pre_delay = int(float(value))
         self._handler.pre_delay_ms = pre_delay
         self._pre_delay_label.config(text=f"{pre_delay} ms")
+
+    def _format_hotkey_display(self, hotkey: str) -> str:
+        """格式化热键显示（首字母大写）"""
+        parts = hotkey.lower().split("+")
+        formatted = []
+        for p in parts:
+            p = p.strip()
+            if p in ("ctrl", "shift", "alt", "win"):
+                formatted.append(p[0].upper() + p[1:])
+            elif p.startswith("f") and len(p) <= 3:
+                formatted.append(p.upper())
+            elif len(p) == 1:
+                formatted.append(p.upper())
+            else:
+                formatted.append(p)
+        return "+".join(formatted)
+
+    def _apply_hotkey(self):
+        """应用新热键"""
+        new_hotkey = self._hotkey_var.get().strip().lower()
+        if not new_hotkey:
+            messagebox.showwarning("提示", "热键不能为空")
+            return
+
+        # 先做合法性验证
+        from keyboard_handler import KeyboardHandler
+        is_valid, err_msg = KeyboardHandler.is_valid_hotkey(new_hotkey)
+        if not is_valid:
+            messagebox.showwarning("热键不合法", err_msg)
+            return
+
+        try:
+            success = self._handler.set_hotkey(new_hotkey)
+            if success:
+                display = self._format_hotkey_display(new_hotkey)
+                self._hotkey_var.set(display)
+                self._shortcut_label.config(text=f"  ({display})")
+                messagebox.showinfo("成功", f"热键已切换为: {display}")
+            else:
+                messagebox.showerror("错误", "热键切换失败，可能与系统或其他程序热键冲突")
+        except Exception as e:
+            messagebox.showerror("错误", f"热键切换失败:\n{e}")
 
     def _toggle_service(self):
         """切换服务状态"""
@@ -313,7 +435,7 @@ class SettingsWindow:
             messagebox.showinfo(
                 "测试输入",
                 "已复制测试文本到剪贴板。\n\n"
-                "请按 Ctrl+Alt+V 在目标窗口中进行测试输入。\n\n"
+                f"请按 {self._format_hotkey_display(self._handler.hotkey)} 在目标窗口中进行测试输入。\n\n"
                 "测试内容包括:\n"
                 '  - 双引号: "Hello Kali Linux"\n'
                 "  - 分号: ;\n"
@@ -328,7 +450,7 @@ class SettingsWindow:
                 "测试输入",
                 f"剪贴板内容 ({len(test_text)} 字符):\n\n"
                 f"{test_text[:200]}{'...' if len(test_text) > 200 else ''}\n\n"
-                "请按 Ctrl+Alt+V 在目标窗口中进行测试输入。"
+                f"请按 {self._format_hotkey_display(self._handler.hotkey)} 在目标窗口中进行测试输入。"
             )
 
     def _minimize_to_tray(self):
